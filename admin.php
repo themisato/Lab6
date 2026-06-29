@@ -1,5 +1,5 @@
 <?php
-// admin.php - Панель администратора с сессионной авторизацией
+// admin.php - Панель администратора (сессионная авторизация)
 session_start();
 require_once 'config.php';
 
@@ -75,7 +75,7 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
     exit;
 }
 
-// ========== ОБРАБОТКА ДЕЙСТВИЙ ==========
+// ========== АДМИН-ПАНЕЛЬ (только для авторизованных) ==========
 $messages = [];
 
 // Удаление
@@ -84,9 +84,9 @@ if (isset($_GET['delete'])) {
     try {
         $pdo->prepare("DELETE FROM application_languages WHERE application_id = ?")->execute([$id]);
         $pdo->prepare("DELETE FROM applications WHERE id = ?")->execute([$id]);
-        $messages[] = '<div style="background:#e8f5e9;padding:12px 16px;border-radius:10px;color:#2e7d32;margin-bottom:15px;border-left:4px solid #4caf50;">✅ Анкета №' . $id . ' успешно удалена</div>';
+        $messages[] = '<div style="background:#e8f5e9;padding:12px 16px;border-radius:10px;color:#2e7d32;margin-bottom:15px;border-left:4px solid #4caf50;">✅ Анкета №' . $id . ' удалена</div>';
     } catch (Exception $e) {
-        $messages[] = '<div style="background:#ffebee;padding:12px 16px;border-radius:10px;color:#c62828;margin-bottom:15px;border-left:4px solid #f44336;">❌ Ошибка при удалении</div>';
+        $messages[] = '<div style="background:#ffebee;padding:12px 16px;border-radius:10px;color:#c62828;margin-bottom:15px;border-left:4px solid #f44336;">❌ Ошибка удаления</div>';
     }
 }
 
@@ -118,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_id'])) {
     $languages = $_POST['languages'] ?? [];
 
     if (empty($full_name) || empty($email) || empty($phone) || empty($birth_date) || empty($gender)) {
-        $messages[] = '<div style="background:#ffebee;padding:12px 16px;border-radius:10px;color:#c62828;margin-bottom:15px;border-left:4px solid #f44336;">⚠️ Заполните все обязательные поля</div>';
+        $messages[] = '<div style="background:#ffebee;padding:12px 16px;border-radius:10px;color:#c62828;margin-bottom:15px;border-left:4px solid #f44336;">⚠️ Заполните все поля</div>';
     } else {
         $pdo->beginTransaction();
         try {
@@ -137,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_id'])) {
                 }
             }
             $pdo->commit();
-            $messages[] = '<div style="background:#e8f5e9;padding:12px 16px;border-radius:10px;color:#2e7d32;margin-bottom:15px;border-left:4px solid #4caf50;">✅ Анкета №' . $id . ' успешно обновлена</div>';
+            $messages[] = '<div style="background:#e8f5e9;padding:12px 16px;border-radius:10px;color:#2e7d32;margin-bottom:15px;border-left:4px solid #4caf50;">✅ Анкета №' . $id . ' обновлена</div>';
             $edit_id = 0;
         } catch (Exception $e) {
             $pdo->rollBack();
@@ -146,24 +146,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_id'])) {
     }
 }
 
-// ========== ЗАГРУЗКА ДАННЫХ ==========
-$applications = [];
-$stmt = $pdo->query("
+// Загрузка данных
+$applications = $pdo->query("
     SELECT a.*, GROUP_CONCAT(pl.name SEPARATOR ', ') AS languages_list
     FROM applications a
     LEFT JOIN application_languages al ON a.id = al.application_id
     LEFT JOIN programming_languages pl ON al.language_id = pl.id
     GROUP BY a.id
     ORDER BY a.id DESC
-");
-$applications = $stmt->fetchAll();
+")->fetchAll();
 
 // Статистика
 $total_users = $pdo->query("SELECT COUNT(*) as total FROM applications")->fetch()['total'];
 $lang_stats = $pdo->query("SELECT pl.name, COUNT(DISTINCT al.application_id) AS count FROM programming_languages pl LEFT JOIN application_languages al ON pl.id = al.language_id GROUP BY pl.id, pl.name ORDER BY count DESC")->fetchAll();
-$gender_stats = $pdo->query("SELECT gender, COUNT(*) as count FROM applications GROUP BY gender")->fetchAll();
-$male_count = 0; $female_count = 0;
-foreach ($gender_stats as $g) {
+
+$gender_data = $pdo->query("SELECT gender, COUNT(*) as count FROM applications GROUP BY gender")->fetchAll();
+$male_count = $female_count = 0;
+foreach ($gender_data as $g) {
     if ($g['gender'] == 'male') $male_count = $g['count'];
     if ($g['gender'] == 'female') $female_count = $g['count'];
 }
@@ -180,7 +179,6 @@ foreach ($gender_stats as $g) {
         * { box-sizing: border-box; }
         body { background: #f5f0ff; font-family: 'Segoe UI', sans-serif; }
         .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        
         .admin-header {
             background: linear-gradient(135deg, #9662f0, #110d52);
             color: white;
@@ -216,11 +214,6 @@ foreach ($gender_stats as $g) {
             transition: background 0.2s;
         }
         .admin-header .user-info .btn-logout:hover { background: rgba(255,255,255,0.4); }
-        .admin-header .nav-links {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
         .admin-header .nav-links a {
             color: white;
             text-decoration: none;
@@ -231,7 +224,6 @@ foreach ($gender_stats as $g) {
             font-size: 14px;
         }
         .admin-header .nav-links a:hover { background: rgba(255,255,255,0.3); }
-        
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -253,7 +245,6 @@ foreach ($gender_stats as $g) {
             -webkit-text-fill-color: transparent;
         }
         .stat-card .label { color: #666; font-size: 14px; margin-top: 4px; }
-        
         .table-wrapper {
             overflow-x: auto;
             background: white;
@@ -261,26 +252,10 @@ foreach ($gender_stats as $g) {
             padding: 0 0 2px 0;
             box-shadow: 0 4px 16px rgba(150,98,240,0.1);
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            min-width: 1000px;
-            font-size: 14px;
-        }
-        th {
-            background: linear-gradient(135deg, #f8b0c0, #9662f0);
-            color: white;
-            padding: 12px 16px;
-            text-align: left;
-            font-weight: 600;
-        }
-        td {
-            padding: 10px 16px;
-            border-bottom: 1px solid #f0e8f5;
-            vertical-align: middle;
-        }
+        table { width: 100%; border-collapse: collapse; min-width: 1000px; font-size: 14px; }
+        th { background: linear-gradient(135deg, #f8b0c0, #9662f0); color: white; padding: 12px 16px; text-align: left; font-weight: 600; }
+        td { padding: 10px 16px; border-bottom: 1px solid #f0e8f5; vertical-align: middle; }
         tr:hover { background: #faf5ff; }
-        
         .badge-lang {
             display: inline-block;
             background: #9662f0;
@@ -292,7 +267,6 @@ foreach ($gender_stats as $g) {
         }
         .gender-male { color: #2b3cf0; font-weight: 600; }
         .gender-female { color: #d55a83; font-weight: 600; }
-        
         .actions a {
             padding: 4px 12px;
             border-radius: 20px;
@@ -305,7 +279,6 @@ foreach ($gender_stats as $g) {
         .btn-edit:hover { background: #9662f0; color: white; }
         .btn-delete { background: #ffebee; color: #c62828; }
         .btn-delete:hover { background: #c62828; color: white; }
-        
         .edit-form {
             background: white;
             padding: 25px;
@@ -365,7 +338,6 @@ foreach ($gender_stats as $g) {
             font-size: 16px;
         }
         .edit-form .btn-cancel:hover { background: #e8d5f5; }
-        
         .bottom-actions {
             display: flex;
             gap: 15px;
@@ -383,7 +355,6 @@ foreach ($gender_stats as $g) {
         .bottom-actions a:hover { transform: translateY(-2px); }
         .btn-back { background: linear-gradient(135deg, #9662f0, #110d52); color: white; }
         .btn-stats { background: #f8b0c0; color: #110d52; }
-        
         @media (max-width: 768px) {
             .edit-form .form-row { grid-template-columns: 1fr; }
             .admin-header { flex-direction: column; text-align: center; }
@@ -392,7 +363,6 @@ foreach ($gender_stats as $g) {
 </head>
 <body>
     <div class="container">
-        <!-- Шапка -->
         <div class="admin-header">
             <h1>🔧 Админ-панель</h1>
             <div class="user-info">
@@ -405,87 +375,34 @@ foreach ($gender_stats as $g) {
             </div>
         </div>
 
-        <!-- Сообщения -->
         <?php foreach ($messages as $msg): echo $msg; endforeach; ?>
 
-        <!-- Статистика -->
         <div class="stats-grid">
-            <div class="stat-card">
-                <div class="number"><?php echo $total_users; ?></div>
-                <div class="label">👤 Всего пользователей</div>
-            </div>
-            <div class="stat-card">
-                <div class="number"><?php echo $male_count; ?></div>
-                <div class="label">♂ Мужчины</div>
-            </div>
-            <div class="stat-card">
-                <div class="number"><?php echo $female_count; ?></div>
-                <div class="label">♀ Женщины</div>
-            </div>
-            <div class="stat-card">
-                <div class="number"><?php echo count($lang_stats); ?></div>
-                <div class="label">🌐 Языков</div>
-            </div>
+            <div class="stat-card"><div class="number"><?php echo $total_users; ?></div><div class="label">👤 Всего пользователей</div></div>
+            <div class="stat-card"><div class="number"><?php echo $male_count; ?></div><div class="label">♂ Мужчины</div></div>
+            <div class="stat-card"><div class="number"><?php echo $female_count; ?></div><div class="label">♀ Женщины</div></div>
+            <div class="stat-card"><div class="number"><?php echo count($lang_stats); ?></div><div class="label">🌐 Языков</div></div>
         </div>
 
-        <!-- Форма редактирования -->
         <?php if ($edit_id > 0 && !empty($edit_values)): ?>
         <div class="edit-form">
             <h2>✏️ Редактирование анкеты №<?php echo $edit_id; ?></h2>
             <form method="POST">
                 <input type="hidden" name="edit_id" value="<?php echo $edit_id; ?>">
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>ФИО *</label>
-                        <input type="text" name="full_name" value="<?php echo htmlspecialchars($edit_values['full_name']); ?>" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Телефон *</label>
-                        <input type="tel" name="phone" value="<?php echo htmlspecialchars($edit_values['phone']); ?>" required>
-                    </div>
+                    <div class="form-group"><label>ФИО *</label><input type="text" name="full_name" value="<?php echo htmlspecialchars($edit_values['full_name']); ?>" required></div>
+                    <div class="form-group"><label>Телефон *</label><input type="tel" name="phone" value="<?php echo htmlspecialchars($edit_values['phone']); ?>" required></div>
                 </div>
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>E-mail *</label>
-                        <input type="email" name="email" value="<?php echo htmlspecialchars($edit_values['email']); ?>" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Дата рождения *</label>
-                        <input type="date" name="birth_date" value="<?php echo htmlspecialchars($edit_values['birth_date']); ?>" required>
-                    </div>
+                    <div class="form-group"><label>E-mail *</label><input type="email" name="email" value="<?php echo htmlspecialchars($edit_values['email']); ?>" required></div>
+                    <div class="form-group"><label>Дата рождения *</label><input type="date" name="birth_date" value="<?php echo htmlspecialchars($edit_values['birth_date']); ?>" required></div>
                 </div>
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>Пол *</label>
-                        <select name="gender" required>
-                            <option value="male" <?php echo $edit_values['gender'] === 'male' ? 'selected' : ''; ?>>♂ Мужской</option>
-                            <option value="female" <?php echo $edit_values['gender'] === 'female' ? 'selected' : ''; ?>>♀ Женский</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Любимые языки</label>
-                        <select name="languages[]" multiple>
-                            <?php
-                            $all_langs = $pdo->query("SELECT name FROM programming_languages ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
-                            foreach ($all_langs as $lang): ?>
-                                <option value="<?php echo htmlspecialchars($lang); ?>" 
-                                    <?php echo in_array($lang, $edit_values['languages'] ?? []) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($lang); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
+                    <div class="form-group"><label>Пол *</label><select name="gender" required><option value="male" <?php echo $edit_values['gender'] === 'male' ? 'selected' : ''; ?>>♂ Мужской</option><option value="female" <?php echo $edit_values['gender'] === 'female' ? 'selected' : ''; ?>>♀ Женский</option></select></div>
+                    <div class="form-group"><label>Любимые языки</label><select name="languages[]" multiple><?php $all_langs = $pdo->query("SELECT name FROM programming_languages ORDER BY name")->fetchAll(PDO::FETCH_COLUMN); foreach ($all_langs as $lang): ?><option value="<?php echo htmlspecialchars($lang); ?>" <?php echo in_array($lang, $edit_values['languages'] ?? []) ? 'selected' : ''; ?>><?php echo htmlspecialchars($lang); ?></option><?php endforeach; ?></select></div>
                 </div>
-                <div class="form-group">
-                    <label>Биография</label>
-                    <textarea name="biography" rows="4"><?php echo htmlspecialchars($edit_values['biography'] ?? ''); ?></textarea>
-                </div>
-                <div class="form-group checkbox">
-                    <label>
-                        <input type="checkbox" name="contract_accepted" value="1" <?php echo $edit_values['contract_accepted'] ? 'checked' : ''; ?>>
-                        Я ознакомлен(а) с контрактом
-                    </label>
-                </div>
+                <div class="form-group"><label>Биография</label><textarea name="biography" rows="4"><?php echo htmlspecialchars($edit_values['biography'] ?? ''); ?></textarea></div>
+                <div class="form-group checkbox"><label><input type="checkbox" name="contract_accepted" value="1" <?php echo $edit_values['contract_accepted'] ? 'checked' : ''; ?>> Я ознакомлен(а) с контрактом</label></div>
                 <div style="display:flex; gap:15px; flex-wrap:wrap; margin-top:15px;">
                     <button type="submit" class="btn-save">💾 Сохранить</button>
                     <a href="admin.php" class="btn-cancel">↩ Отмена</a>
@@ -494,56 +411,31 @@ foreach ($gender_stats as $g) {
         </div>
         <?php endif; ?>
 
-        <!-- Таблица анкет -->
         <div class="table-wrapper">
             <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>ФИО</th>
-                        <th>Телефон</th>
-                        <th>Email</th>
-                        <th>Дата рожд.</th>
-                        <th>Пол</th>
-                        <th>Языки</th>
-                        <th>Действия</th>
-                    </tr>
-                </thead>
+                <thead><tr><th>ID</th><th>ФИО</th><th>Телефон</th><th>Email</th><th>Дата рожд.</th><th>Пол</th><th>Языки</th><th>Действия</th></tr></thead>
                 <tbody>
                     <?php if (empty($applications)): ?>
                         <tr><td colspan="8" style="text-align:center;color:#999;padding:30px;">😕 Нет ни одной анкеты</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($applications as $app): ?>
+                    <?php else: foreach ($applications as $app): ?>
                         <tr>
                             <td><strong>#<?php echo $app['id']; ?></strong></td>
                             <td><?php echo htmlspecialchars($app['full_name']); ?></td>
                             <td><?php echo htmlspecialchars($app['phone']); ?></td>
                             <td><?php echo htmlspecialchars($app['email']); ?></td>
                             <td><?php echo date('d.m.Y', strtotime($app['birth_date'])); ?></td>
-                            <td class="<?php echo $app['gender'] === 'male' ? 'gender-male' : 'gender-female'; ?>">
-                                <?php echo $app['gender'] === 'male' ? '♂ Мужской' : '♀ Женский'; ?>
-                            </td>
-                            <td>
-                                <?php 
-                                $langs = explode(', ', $app['languages_list'] ?? '');
-                                foreach ($langs as $lang):
-                                    if (trim($lang)):
-                                ?>
-                                    <span class="badge-lang"><?php echo htmlspecialchars(trim($lang)); ?></span>
-                                <?php endif; endforeach; ?>
-                            </td>
+                            <td class="<?php echo $app['gender'] === 'male' ? 'gender-male' : 'gender-female'; ?>"><?php echo $app['gender'] === 'male' ? '♂ Мужской' : '♀ Женский'; ?></td>
+                            <td><?php $langs = explode(', ', $app['languages_list'] ?? ''); foreach ($langs as $lang): if (trim($lang)): ?><span class="badge-lang"><?php echo htmlspecialchars(trim($lang)); ?></span><?php endif; endforeach; ?></td>
                             <td class="actions">
                                 <a href="admin.php?edit=<?php echo $app['id']; ?>" class="btn-edit">✏️</a>
                                 <a href="admin.php?delete=<?php echo $app['id']; ?>" class="btn-delete" onclick="return confirm('Удалить анкету №<?php echo $app['id']; ?>?')">🗑</a>
                             </td>
                         </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+                    <?php endforeach; endif; ?>
                 </tbody>
             </table>
         </div>
 
-        <!-- Кнопки внизу -->
         <div class="bottom-actions">
             <a href="admin_stats.php" class="btn-stats">📊 Подробная статистика</a>
             <a href="index.php" class="btn-back">📝 Главная форма</a>
