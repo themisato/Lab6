@@ -1,7 +1,7 @@
 <?php
 header('Content-Type: text/html; charset=UTF-8');
 
-// ========== ПОДКЛЮЧЕНИЕ К ВАШЕЙ БД ==========
+// ========== ПОДКЛЮЧЕНИЕ К БД ==========
 function getDB() {
     static $pdo = null;
     if ($pdo === null) {
