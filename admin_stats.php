@@ -3,52 +3,30 @@
 session_start();
 require_once 'config.php';
 
-// ========== HTTP-АВТОРИЗАЦИЯ ==========
-if (!isset($_SERVER['PHP_AUTH_USER']) || !isset($_SERVER['PHP_AUTH_PW'])) {
-    header('WWW-Authenticate: Basic realm="Админ-панель"');
-    header('HTTP/1.0 401 Unauthorized');
-    echo '<h1 style="text-align:center;color:#110d52;margin-top:100px;">🔒 Доступ запрещен</h1>';
-    exit;
-}
-
-$auth_login = $_SERVER['PHP_AUTH_USER'];
-$auth_pass  = $_SERVER['PHP_AUTH_PW'];
-
-$stmt = $pdo->prepare("SELECT password_hash FROM admin WHERE login = ?");
-$stmt->execute([$auth_login]);
-$admin_row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$admin_row || !password_verify($auth_pass, $admin_row['password_hash'])) {
-    header('WWW-Authenticate: Basic realm="Админ-панель"');
-    header('HTTP/1.0 401 Unauthorized');
-    echo '<h1 style="text-align:center;color:#110d52;margin-top:100px;">❌ Неверный логин или пароль!</h1>';
+// ========== ПРОВЕРКА АВТОРИЗАЦИИ ==========
+if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
+    header('Location: admin.php');
     exit;
 }
 
 // ========== СТАТИСТИКА ==========
 $total_users = $pdo->query("SELECT COUNT(*) as total FROM applications")->fetch()['total'];
 
-$lang_stats = [];
-$stmt = $pdo->query("
+$lang_stats = $pdo->query("
     SELECT pl.name, COUNT(DISTINCT al.application_id) AS count
     FROM programming_languages pl
     LEFT JOIN application_languages al ON pl.id = al.language_id
     GROUP BY pl.id, pl.name
     ORDER BY count DESC, pl.name
-");
-$lang_stats = $stmt->fetchAll();
-
-$gender_stats = $pdo->query("
-    SELECT gender, COUNT(*) as count FROM applications GROUP BY gender
 ")->fetchAll();
-$male_count = 0;
-$female_count = 0;
+
+$gender_stats = $pdo->query("SELECT gender, COUNT(*) as count FROM applications GROUP BY gender")->fetchAll();
+$male_count = 0; $female_count = 0;
 foreach ($gender_stats as $g) {
     if ($g['gender'] == 'male') $male_count = $g['count'];
     if ($g['gender'] == 'female') $female_count = $g['count'];
 }
 
-// Возрастная статистика
 $age_stats = $pdo->query("
     SELECT 
         CASE 
@@ -64,12 +42,8 @@ $age_stats = $pdo->query("
     ORDER BY age_group
 ")->fetchAll();
 
-// Контракты
-$contract_stats = $pdo->query("
-    SELECT contract_accepted, COUNT(*) as count FROM applications GROUP BY contract_accepted
-")->fetchAll();
-$contract_yes = 0;
-$contract_no = 0;
+$contract_stats = $pdo->query("SELECT contract_accepted, COUNT(*) as count FROM applications GROUP BY contract_accepted")->fetchAll();
+$contract_yes = 0; $contract_no = 0;
 foreach ($contract_stats as $c) {
     if ($c['contract_accepted'] == 1) $contract_yes = $c['count'];
     if ($c['contract_accepted'] == 0) $contract_no = $c['count'];
@@ -79,71 +53,58 @@ foreach ($contract_stats as $c) {
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Подробная статистика</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        body { background: #f5f0ff; }
+        body { background: #f5f0ff; font-family: 'Segoe UI', sans-serif; }
         .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
-        .admin-header {
+        .header {
             background: linear-gradient(135deg, #9662f0, #110d52);
             color: white;
-            padding: 1.5rem 2rem;
+            padding: 20px 30px;
             border-radius: 24px;
-            margin-bottom: 2rem;
+            margin-bottom: 25px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
         }
-        .admin-header h1 { margin: 0; }
-        .admin-header .user-info { 
-            background: rgba(255,255,255,0.2);
-            padding: 0.5rem 1.2rem;
-            border-radius: 30px;
-        }
-        
+        .header h1 { margin: 0; }
+        .header a { color: white; text-decoration: none; padding: 8px 20px; border-radius: 30px; background: rgba(255,255,255,0.2); }
+        .header a:hover { background: rgba(255,255,255,0.4); }
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
+            gap: 15px;
+            margin-bottom: 25px;
         }
         .stat-card {
             background: white;
-            padding: 1.5rem;
+            padding: 20px;
             border-radius: 16px;
             text-align: center;
-            box-shadow: 0 4px 12px rgba(150, 98, 240, 0.15);
-            border: 1px solid #e8d5f5;
+            box-shadow: 0 2px 10px rgba(150,98,240,0.1);
         }
-        .stat-card .number { 
-            font-size: 2.5rem; 
-            font-weight: bold; 
+        .stat-card .number {
+            font-size: 32px;
+            font-weight: bold;
             background: linear-gradient(135deg, #9662f0, #110d52);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-        .stat-card .label { color: #666; margin-top: 0.3rem; }
-        
+        .stat-card .label { color: #666; font-size: 14px; }
         .chart-box {
             background: white;
-            padding: 2rem;
+            padding: 25px;
             border-radius: 20px;
-            box-shadow: 0 4px 12px rgba(150, 98, 240, 0.1);
-            margin-bottom: 2rem;
+            box-shadow: 0 4px 16px rgba(150,98,240,0.1);
+            margin-bottom: 25px;
         }
-        .chart-box h2 {
-            color: #110d52;
-            margin-bottom: 1.5rem;
-            border-bottom: 2px solid #e8d5f5;
-            padding-bottom: 0.5rem;
-        }
-        
+        .chart-box h2 { color: #110d52; margin-bottom: 20px; border-bottom: 2px solid #e8d5f5; padding-bottom: 10px; }
         .lang-bar {
             display: flex;
             align-items: center;
-            margin-bottom: 0.7rem;
+            margin-bottom: 10px;
         }
         .lang-bar .lang-name {
             width: 120px;
@@ -157,7 +118,6 @@ foreach ($contract_stats as $c) {
             background: #f0e8f5;
             border-radius: 15px;
             overflow: hidden;
-            position: relative;
         }
         .lang-bar .bar-fill {
             height: 100%;
@@ -168,9 +128,8 @@ foreach ($contract_stats as $c) {
             justify-content: flex-end;
             padding-right: 10px;
             color: white;
-            font-size: 0.8rem;
             font-weight: bold;
-            transition: width 1s ease;
+            font-size: 13px;
         }
         .lang-bar .bar-count {
             width: 50px;
@@ -180,45 +139,38 @@ foreach ($contract_stats as $c) {
             flex-shrink: 0;
             margin-left: 10px;
         }
-        
         .gender-chart {
             display: flex;
-            gap: 2rem;
+            gap: 40px;
             justify-content: center;
-            margin-top: 1rem;
             flex-wrap: wrap;
         }
-        .gender-item {
-            text-align: center;
-            min-width: 120px;
-        }
+        .gender-item { text-align: center; }
         .gender-item .circle {
-            width: 90px;
-            height: 90px;
+            width: 100px;
+            height: 100px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 2.5rem;
+            font-size: 30px;
             font-weight: bold;
             color: white;
-            margin: 0 auto 0.5rem;
+            margin: 0 auto 10px;
         }
         .gender-item .circle.male { background: #2b3cf0; }
         .gender-item .circle.female { background: #d55a83; }
         .gender-item .gender-label { font-weight: 600; color: #110d52; }
-        
         .age-chart {
             display: flex;
-            gap: 1rem;
+            gap: 15px;
             justify-content: center;
             flex-wrap: wrap;
-            margin-top: 1rem;
         }
         .age-item {
             text-align: center;
-            min-width: 80px;
-            padding: 1rem;
+            min-width: 70px;
+            padding: 15px;
             background: #f5f0ff;
             border-radius: 12px;
         }
@@ -227,7 +179,7 @@ foreach ($contract_stats as $c) {
             height: 100px;
             background: #f0e8f5;
             border-radius: 20px;
-            margin: 0 auto 0.5rem;
+            margin: 0 auto 10px;
             overflow: hidden;
             position: relative;
         }
@@ -240,54 +192,36 @@ foreach ($contract_stats as $c) {
             border-radius: 20px;
             transition: height 1s ease;
         }
-        .age-item .age-label { color: #666; font-size: 0.8rem; }
-        .age-item .age-count { font-weight: bold; color: #110d52; }
-        
         .bottom-actions {
             display: flex;
-            gap: 1rem;
+            gap: 15px;
             justify-content: center;
             flex-wrap: wrap;
-            margin-top: 2rem;
+            margin-top: 20px;
         }
         .bottom-actions a {
-            padding: 0.7rem 1.5rem;
+            padding: 12px 30px;
             border-radius: 40px;
             text-decoration: none;
             font-weight: bold;
             transition: transform 0.2s;
         }
         .bottom-actions a:hover { transform: translateY(-2px); }
-        .btn-back {
-            background: linear-gradient(135deg, #9662f0, #110d52);
-            color: white;
-        }
+        .btn-back { background: linear-gradient(135deg, #9662f0, #110d52); color: white; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="admin-header">
+        <div class="header">
             <h1>📊 Подробная статистика</h1>
-            <div class="user-info">👤 <?php echo htmlspecialchars($auth_login); ?></div>
+            <a href="admin.php">← Назад</a>
         </div>
 
         <div class="stats-grid">
-            <div class="stat-card">
-                <div class="number"><?php echo $total_users; ?></div>
-                <div class="label">👤 Всего пользователей</div>
-            </div>
-            <div class="stat-card">
-                <div class="number"><?php echo $male_count; ?></div>
-                <div class="label">♂ Мужчины</div>
-            </div>
-            <div class="stat-card">
-                <div class="number"><?php echo $female_count; ?></div>
-                <div class="label">♀ Женщины</div>
-            </div>
-            <div class="stat-card">
-                <div class="number"><?php echo count($lang_stats); ?></div>
-                <div class="label">🌐 Языков</div>
-            </div>
+            <div class="stat-card"><div class="number"><?php echo $total_users; ?></div><div class="label">👤 Всего пользователей</div></div>
+            <div class="stat-card"><div class="number"><?php echo $male_count; ?></div><div class="label">♂ Мужчины</div></div>
+            <div class="stat-card"><div class="number"><?php echo $female_count; ?></div><div class="label">♀ Женщины</div></div>
+            <div class="stat-card"><div class="number"><?php echo count($lang_stats); ?></div><div class="label">🌐 Языков</div></div>
         </div>
 
         <div class="chart-box">
@@ -307,7 +241,7 @@ foreach ($contract_stats as $c) {
         </div>
 
         <div class="chart-box">
-            <h2>🌐 Популярность языков программирования</h2>
+            <h2>🌐 Популярность языков</h2>
             <?php 
             $max_count = !empty($lang_stats) ? max(array_column($lang_stats, 'count')) : 1;
             if ($max_count == 0) $max_count = 1;
@@ -323,9 +257,6 @@ foreach ($contract_stats as $c) {
                     <div class="bar-count"><?php echo $stat['count']; ?></div>
                 </div>
             <?php endforeach; ?>
-            <div style="color:#999; font-size:0.85rem; margin-top:0.5rem; text-align:center;">
-                * Всего пользователей: <?php echo $total_users; ?>
-            </div>
         </div>
 
         <div class="chart-box">
@@ -343,8 +274,8 @@ foreach ($contract_stats as $c) {
                             <div class="age-bar">
                                 <div class="age-fill" style="height: <?php echo ($age['count'] / $max_age) * 100; ?>%;"></div>
                             </div>
-                            <div class="age-count"><?php echo $age['count']; ?></div>
-                            <div class="age-label"><?php echo $age['age_group']; ?></div>
+                            <div style="font-weight:bold;color:#110d52;"><?php echo $age['count']; ?></div>
+                            <div style="color:#666;font-size:13px;"><?php echo $age['age_group']; ?></div>
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -353,16 +284,14 @@ foreach ($contract_stats as $c) {
 
         <div class="chart-box">
             <h2>📄 Согласие с контрактом</h2>
-            <div style="display:flex; gap:2rem; justify-content:center; flex-wrap:wrap;">
+            <div style="display:flex; gap:40px; justify-content:center; flex-wrap:wrap;">
                 <div style="text-align:center;">
-                    <div style="font-size:2.5rem; font-weight:bold; color:#2e7d32;"><?php echo $contract_yes; ?></div>
+                    <div style="font-size:32px; font-weight:bold; color:#2e7d32;"><?php echo $contract_yes; ?></div>
                     <div style="color:#666;">✅ Согласились</div>
-                    <div style="color:#999;font-size:0.85rem;"><?php echo $total_users > 0 ? round($contract_yes * 100 / $total_users, 1) : 0; ?>%</div>
                 </div>
                 <div style="text-align:center;">
-                    <div style="font-size:2.5rem; font-weight:bold; color:#c62828;"><?php echo $contract_no; ?></div>
+                    <div style="font-size:32px; font-weight:bold; color:#c62828;"><?php echo $contract_no; ?></div>
                     <div style="color:#666;">❌ Не согласились</div>
-                    <div style="color:#999;font-size:0.85rem;"><?php echo $total_users > 0 ? round($contract_no * 100 / $total_users, 1) : 0; ?>%</div>
                 </div>
             </div>
         </div>
@@ -371,24 +300,5 @@ foreach ($contract_stats as $c) {
             <a href="admin.php" class="btn-back">← Назад в админ-панель</a>
         </div>
     </div>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Анимация баров
-            const bars = document.querySelectorAll('.bar-fill');
-            bars.forEach(bar => {
-                const width = bar.style.width;
-                bar.style.width = '0%';
-                setTimeout(() => { bar.style.width = width; }, 300);
-            });
-            
-            const ageFills = document.querySelectorAll('.age-fill');
-            ageFills.forEach(fill => {
-                const height = fill.style.height;
-                fill.style.height = '0%';
-                setTimeout(() => { fill.style.height = height; }, 400);
-            });
-        });
-    </script>
 </body>
 </html>

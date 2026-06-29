@@ -304,12 +304,13 @@ $allowed_languages = ['Pascal', 'C', 'C++', 'JavaScript', 'PHP', 'Python', 'Java
             <?php endif; ?>
             <a href="list.php" class="action-btn">📋 Анкеты</a>
             <a href="bd.html" class="action-btn secondary">🗄️ БД</a>
+            <a href="admin.php" class="action-btn" style="background: linear-gradient(135deg, #853aa7, #110d52);">👑 Админ-панель</a>
         </div>
     </main>
 
     <footer>
         <div class="container">
-            <p>Лабораторная работа №5 — Авторизация с сессиями | Май 2026</p>
+            <p>Лабораторная работа №5 — Авторизация с сессиями | Июнь 2026</p>
         </div>
     </footer>
 </body>

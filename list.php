@@ -175,6 +175,10 @@ $applications = $stmt->fetchAll();
         .action-btn.secondary {
             background: linear-gradient(135deg, #b0bec5, #90a4ae);
         }
+
+        .action-btn.admin {
+            background: linear-gradient(135deg, #f06292, #110d52);
+        }
         
         /* Модальное окно для просмотра */
         .modal {
@@ -268,9 +272,7 @@ $applications = $stmt->fetchAll();
 <body>
     <header>
         <div class="container">
-           
             <h2>Задание 3. Список сохранённых анкет</h2>
-           
         </div>
     </header>
 
@@ -343,8 +345,12 @@ $applications = $stmt->fetchAll();
                                     ?>
                                 </td>
                                 <td><?php echo date('d.m.Y H:i:s', strtotime($app['created_at'])); ?></td>
-                                
-                             </tr>
+                                <td>
+                                    <div class="actions">
+                                        <button class="btn-view" onclick="openModal(<?php echo $app['id']; ?>)">👁️</button>
+                                    </div>
+                                </td>
+                            </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
@@ -352,21 +358,58 @@ $applications = $stmt->fetchAll();
         <?php endif; ?>
         
         <div class="action-buttons">
-            <a href="index.php" class="action-btn"> Добавить новую анкету</a>
+            <a href="index.php" class="action-btn">📝 Добавить новую анкету</a>
+            <!-- 👇 КНОПКА АДМИН-ПАНЕЛИ -->
+            <a href="admin.php" class="action-btn admin">👑 Админ-панель</a>
         </div>
     </main>
-
-   
 
     <!-- Модальное окно для просмотра деталей -->
     <div id="detailsModal" class="modal">
         <div class="modal-content">
             <span class="modal-close" onclick="closeModal()">&times;</span>
-            <h3> Детали анкеты</h3>
+            <h3>📄 Детали анкеты</h3>
             <div id="modalBody"></div>
         </div>
     </div>
 
-    
+    <footer>
+        <div class="container">
+            <p>Лабораторная работа №5 — Авторизация с сессиями | Май 2026</p>
+        </div>
+    </footer>
+
+    <script>
+        function openModal(id) {
+            fetch('admin_view.php?id=' + id)
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('modalBody').innerHTML = data;
+                    document.getElementById('detailsModal').style.display = 'flex';
+                })
+                .catch(error => {
+                    document.getElementById('modalBody').innerHTML = '<p style="color:red;">Ошибка загрузки данных</p>';
+                    document.getElementById('detailsModal').style.display = 'flex';
+                });
+        }
+
+        function closeModal() {
+            document.getElementById('detailsModal').style.display = 'none';
+        }
+
+        // Закрытие по клику вне модального окна
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('detailsModal')) {
+                closeModal();
+            }
+        }
+
+        // Закрытие по Escape
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeModal();
+            }
+        });
+    </script>
 </body>
 </html>
