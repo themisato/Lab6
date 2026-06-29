@@ -1,11 +1,26 @@
 <?php
 // admin_stats.php - Подробная статистика
-session_start();
 require_once 'config.php';
 
-// ========== ПРОВЕРКА АВТОРИЗАЦИИ ==========
-if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-    header('Location: admin.php');
+// ========== HTTP-АВТОРИЗАЦИЯ ==========
+if (!isset($_SERVER['PHP_AUTH_USER']) || !isset($_SERVER['PHP_AUTH_PW'])) {
+    header('WWW-Authenticate: Basic realm="Админ-панель"');
+    header('HTTP/1.0 401 Unauthorized');
+    echo '<h1 style="text-align:center;color:#110d52;margin-top:100px;">🔒 Доступ запрещен</h1>';
+    exit;
+}
+
+$auth_login = $_SERVER['PHP_AUTH_USER'];
+$auth_pass  = $_SERVER['PHP_AUTH_PW'];
+
+$stmt = $pdo->prepare("SELECT password_hash FROM admin WHERE login = ?");
+$stmt->execute([$auth_login]);
+$admin_row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$admin_row || !password_verify($auth_pass, $admin_row['password_hash'])) {
+    header('WWW-Authenticate: Basic realm="Админ-панель"');
+    header('HTTP/1.0 401 Unauthorized');
+    echo '<h1 style="text-align:center;color:#110d52;margin-top:100px;">❌ Неверный логин или пароль!</h1>';
     exit;
 }
 

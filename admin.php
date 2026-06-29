@@ -1,93 +1,39 @@
 <?php
-// admin.php - Панель администратора (сессионная авторизация)
-session_start();
+// admin.php - Панель администратора (HTTP-авторизация)
 require_once 'config.php';
 
-// ========== ПРОВЕРКА АВТОРИЗАЦИИ ==========
-$error = '';
-
-// Выход
-if (isset($_GET['logout'])) {
-    session_destroy();
-    header('Location: admin.php');
+// ========== HTTP-АВТОРИЗАЦИЯ ==========
+if (!isset($_SERVER['PHP_AUTH_USER']) || !isset($_SERVER['PHP_AUTH_PW'])) {
+    header('WWW-Authenticate: Basic realm="Админ-панель"');
+    header('HTTP/1.0 401 Unauthorized');
+    echo '<h1 style="text-align:center;color:#110d52;margin-top:100px;">🔒 Доступ запрещен<br>Введите логин и пароль администратора.</h1>';
     exit;
 }
 
-// Обработка входа
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login']) && isset($_POST['password'])) {
-    $login = trim($_POST['login']);
-    $password = trim($_POST['password']);
-    
-    $stmt = $pdo->prepare("SELECT password_hash FROM admin WHERE login = ?");
-    $stmt->execute([$login]);
-    $admin = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if ($admin && password_verify($password, $admin['password_hash'])) {
-        $_SESSION['admin_logged_in'] = true;
-        $_SESSION['admin_login'] = $login;
-        header('Location: admin.php');
-        exit;
-    } else {
-        $error = '❌ Неверный логин или пароль!';
-    }
-}
+$auth_login = $_SERVER['PHP_AUTH_USER'];
+$auth_pass  = $_SERVER['PHP_AUTH_PW'];
 
-// Если не авторизован - показываем форму входа
-if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-    ?>
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Вход в админ-панель</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { background: #f5f0ff; font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
-            .login-box { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 8px 30px rgba(150,98,240,0.2); width: 360px; }
-            .login-box h1 { color: #110d52; text-align: center; margin-bottom: 10px; font-size: 28px; }
-            .login-box .subtitle { text-align: center; color: #9662f0; margin-bottom: 25px; font-size: 14px; }
-            .login-box input { width: 100%; padding: 12px 16px; border: 2px solid #e8d5f5; border-radius: 12px; font-size: 16px; margin-bottom: 15px; transition: border-color 0.3s; }
-            .login-box input:focus { outline: none; border-color: #9662f0; }
-            .login-box button { width: 100%; padding: 14px; background: linear-gradient(135deg, #9662f0, #110d52); color: white; border: none; border-radius: 40px; font-size: 18px; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
-            .login-box button:hover { transform: scale(1.02); }
-            .error { color: #c62828; background: #ffebee; padding: 12px; border-radius: 10px; margin-bottom: 15px; text-align: center; }
-            .hint { text-align: center; color: #999; margin-top: 15px; font-size: 13px; }
-            .hint strong { color: #110d52; }
-        </style>
-    </head>
-    <body>
-        <div class="login-box">
-            <h1>🔐 Админ-панель</h1>
-            <p class="subtitle">Введите логин и пароль для входа</p>
-            <?php if ($error): ?>
-                <div class="error"><?php echo $error; ?></div>
-            <?php endif; ?>
-            <form method="POST">
-                <input type="text" name="login" placeholder="Логин" value="admin" required>
-                <input type="password" name="password" placeholder="Пароль" value="admin123" required>
-                <button type="submit">🚪 Войти</button>
-            </form>
-            <div class="hint">Логин: <strong>admin</strong> | Пароль: <strong>admin123</strong></div>
-        </div>
-    </body>
-    </html>
-    <?php
+// Проверка в таблице admin
+$stmt = $pdo->prepare("SELECT password_hash FROM admin WHERE login = ?");
+$stmt->execute([$auth_login]);
+$admin_row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$admin_row || !password_verify($auth_pass, $admin_row['password_hash'])) {
+    header('WWW-Authenticate: Basic realm="Админ-панель"');
+    header('HTTP/1.0 401 Unauthorized');
+    echo '<h1 style="text-align:center;color:#110d52;margin-top:100px;">❌ Неверный логин или пароль!</h1>';
     exit;
 }
 
-// ========== АДМИН-ПАНЕЛЬ (только для авторизованных) ==========
+// ========== ОБРАБОТКА ДЕЙСТВИЙ ==========
 $messages = [];
 
 // Удаление
 if (isset($_GET['delete'])) {
     $id = (int)$_GET['delete'];
-    try {
-        $pdo->prepare("DELETE FROM application_languages WHERE application_id = ?")->execute([$id]);
-        $pdo->prepare("DELETE FROM applications WHERE id = ?")->execute([$id]);
-        $messages[] = '<div style="background:#e8f5e9;padding:12px 16px;border-radius:10px;color:#2e7d32;margin-bottom:15px;border-left:4px solid #4caf50;">✅ Анкета №' . $id . ' удалена</div>';
-    } catch (Exception $e) {
-        $messages[] = '<div style="background:#ffebee;padding:12px 16px;border-radius:10px;color:#c62828;margin-bottom:15px;border-left:4px solid #f44336;">❌ Ошибка удаления</div>';
-    }
+    $pdo->prepare("DELETE FROM application_languages WHERE application_id = ?")->execute([$id]);
+    $pdo->prepare("DELETE FROM applications WHERE id = ?")->execute([$id]);
+    $messages[] = '<div style="background:#e8f5e9;padding:12px 16px;border-radius:10px;color:#2e7d32;margin-bottom:15px;border-left:4px solid #4caf50;">✅ Анкета №' . $id . ' удалена</div>';
 }
 
 // Редактирование
@@ -141,28 +87,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_id'])) {
             $edit_id = 0;
         } catch (Exception $e) {
             $pdo->rollBack();
-            $messages[] = '<div style="background:#ffebee;padding:12px 16px;border-radius:10px;color:#c62828;margin-bottom:15px;border-left:4px solid #f44336;">❌ Ошибка: ' . $e->getMessage() . '</div>';
+            $messages[] = '<div style="background:#ffebee;padding:12px 16px;border-radius:10px;color:#c62828;margin-bottom:15px;border-left:4px solid #f44336;">❌ Ошибка</div>';
         }
     }
 }
 
 // Загрузка данных
-$applications = $pdo->query("
+$applications = [];
+$stmt = $pdo->query("
     SELECT a.*, GROUP_CONCAT(pl.name SEPARATOR ', ') AS languages_list
     FROM applications a
     LEFT JOIN application_languages al ON a.id = al.application_id
     LEFT JOIN programming_languages pl ON al.language_id = pl.id
     GROUP BY a.id
     ORDER BY a.id DESC
-")->fetchAll();
+");
+$applications = $stmt->fetchAll();
 
 // Статистика
 $total_users = $pdo->query("SELECT COUNT(*) as total FROM applications")->fetch()['total'];
 $lang_stats = $pdo->query("SELECT pl.name, COUNT(DISTINCT al.application_id) AS count FROM programming_languages pl LEFT JOIN application_languages al ON pl.id = al.language_id GROUP BY pl.id, pl.name ORDER BY count DESC")->fetchAll();
-
-$gender_data = $pdo->query("SELECT gender, COUNT(*) as count FROM applications GROUP BY gender")->fetchAll();
-$male_count = $female_count = 0;
-foreach ($gender_data as $g) {
+$gender_stats = $pdo->query("SELECT gender, COUNT(*) as count FROM applications GROUP BY gender")->fetchAll();
+$male_count = 0; $female_count = 0;
+foreach ($gender_stats as $g) {
     if ($g['gender'] == 'male') $male_count = $g['count'];
     if ($g['gender'] == 'female') $female_count = $g['count'];
 }
@@ -204,16 +151,11 @@ foreach ($gender_data as $g) {
             border-radius: 30px;
             font-size: 14px;
         }
-        .admin-header .user-info .btn-logout {
-            background: rgba(255,255,255,0.25);
-            color: white;
-            padding: 8px 20px;
-            border-radius: 30px;
-            text-decoration: none;
-            font-weight: 600;
-            transition: background 0.2s;
+        .admin-header .nav-links {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
         }
-        .admin-header .user-info .btn-logout:hover { background: rgba(255,255,255,0.4); }
         .admin-header .nav-links a {
             color: white;
             text-decoration: none;
@@ -366,8 +308,7 @@ foreach ($gender_data as $g) {
         <div class="admin-header">
             <h1>🔧 Админ-панель</h1>
             <div class="user-info">
-                <span class="badge">👤 <?php echo htmlspecialchars($_SESSION['admin_login']); ?></span>
-                <a href="admin.php?logout=1" class="btn-logout">🚪 Выйти</a>
+                <span class="badge">👤 <?php echo htmlspecialchars($auth_login); ?></span>
                 <div class="nav-links">
                     <a href="index.php">📝 Форма</a>
                     <a href="list.php">📋 Анкеты</a>
