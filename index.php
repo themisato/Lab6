@@ -134,11 +134,18 @@ $allowed_languages = ['Pascal', 'C', 'C++', 'JavaScript', 'PHP', 'Python', 'Java
             color: #e6006b;
             font-size: 1.1rem;
         }
+        /* Стиль для кнопки Админ-панель */
+        .action-btn.admin {
+            background: linear-gradient(135deg, #d81b60, #110d52);
+        }
+        .action-btn.admin:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(216, 27, 96, 0.4);
+        }
     </style>
 </head>
 <body>
     
-
     <main class="container">
         <section class="intro">
             <p>Заполните форму ниже. При первой отправке генерируются логин и пароль. <br>
@@ -298,19 +305,21 @@ $allowed_languages = ['Pascal', 'C', 'C++', 'JavaScript', 'PHP', 'Python', 'Java
             <button type="submit" class="submit-btn">✅ Сохранить</button>
         </form>
 
+        <!-- ========== БЛОК С КНОПКАМИ ========== -->
         <div class="action-buttons">
             <?php if (!isset($_SESSION['user_id'])): ?>
                 <a href="login.php" class="action-btn">🔐 Войти</a>
             <?php endif; ?>
             <a href="list.php" class="action-btn">📋 Анкеты</a>
             <a href="bd.html" class="action-btn secondary">🗄️ БД</a>
-            <a href="admin.php" class="action-btn" style="background: linear-gradient(135deg, #853aa7, #110d52);">👑 Админ-панель</a>
+            <!-- 👇 КНОПКА АДМИН-ПАНЕЛИ -->
+            <a href="admin.php" class="action-btn admin">👑 Админ-панель</a>
         </div>
     </main>
 
     <footer>
         <div class="container">
-            <p>Лабораторная работа №5 — Авторизация с сессиями | Июнь 2026</p>
+            <p>Лабораторная работа №5 — Авторизация с сессиями | Май 2026</p>
         </div>
     </footer>
 </body>
