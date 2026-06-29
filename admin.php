@@ -1,420 +1,310 @@
 <?php
-// admin.php - Панель администратора
-session_start();
-require_once 'config.php';
+header('Content-Type: text/html; charset=UTF-8');
 
-// ========== ПРОВЕРКА АДМИНИСТРАТОРА ЧЕРЕЗ БД ==========
-// Проверяем, есть ли таблица admin
-$check = $pdo->query("SHOW TABLES LIKE 'admin'");
-if ($check->rowCount() == 0) {
-    die("❌ Таблица 'admin' не найдена! Создайте через <a href='create_admin.php'>create_admin.php</a>");
+// ========== ПОДКЛЮЧЕНИЕ К ВАШЕЙ БД ==========
+function getDB() {
+    static $pdo = null;
+    if ($pdo === null) {
+        $db_host = 'localhost';
+        $db_user = 'u82686';      // ← ВАШ ЛОГИН
+        $db_pass = '8078259';     // ← ВАШ ПАРОЛЬ
+        $db_name = 'u82686';      // ← ВАША БД
+        try {
+            $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+            $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        } catch (PDOException $e) {
+            die("Ошибка подключения к БД: " . $e->getMessage());
+        }
+    }
+    return $pdo;
 }
 
-// Получаем данные администратора
-$stmt = $pdo->query("SELECT login, password_hash FROM admin LIMIT 1");
-$admin_data = $stmt->fetch();
+$pdo = getDB();
 
-if (!$admin_data) {
-    die("❌ Нет администраторов в БД! Создайте через <a href='create_admin.php'>create_admin.php</a>");
-}
-
-$admin_login = $admin_data['login'];
-$admin_hash = $admin_data['password_hash'];
-
-// HTTP-авторизация
+// ========== HTTP-АВТОРИЗАЦИЯ ==========
 if (!isset($_SERVER['PHP_AUTH_USER']) || !isset($_SERVER['PHP_AUTH_PW'])) {
-    header('WWW-Authenticate: Basic realm="Admin Panel"');
+    header('WWW-Authenticate: Basic realm="Админ-панель Задание 6"');
     header('HTTP/1.0 401 Unauthorized');
-    echo '<h1 style="text-align:center;margin-top:50px;color:#d32f2f;">🔒 Доступ запрещен</h1>';
-    echo '<p style="text-align:center;">Требуется авторизация</p>';
+    echo '<h1 style="text-align:center;color:#e67e22;margin-top:100px;">Доступ к админ-панели запрещён.<br>Введите логин и пароль администратора.</h1>';
     exit;
 }
 
-// Проверяем логин
-if ($_SERVER['PHP_AUTH_USER'] != $admin_login) {
-    header('WWW-Authenticate: Basic realm="Admin Panel"');
+$auth_login = $_SERVER['PHP_AUTH_USER'];
+$auth_pass  = $_SERVER['PHP_AUTH_PW'];
+
+// Проверка логина/хеша из таблицы admin
+$stmt = $pdo->prepare("SELECT password_hash FROM admin WHERE login = ?");
+$stmt->execute([$auth_login]);
+$admin_row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$admin_row || !password_verify($auth_pass, $admin_row['password_hash'])) {
+    header('WWW-Authenticate: Basic realm="Админ-панель Задание 6"');
     header('HTTP/1.0 401 Unauthorized');
-    echo '<h1 style="text-align:center;margin-top:50px;">❌ Неверный логин</h1>';
+    echo '<h1 style="text-align:center;color:#e67e22;margin-top:100px;">Неверный логин или пароль администратора!<br><small>Попробуйте ещё раз (admin / admin123)</small></h1>';
     exit;
 }
 
-// Проверяем пароль
-if (!password_verify($_SERVER['PHP_AUTH_PW'], $admin_hash)) {
-    header('WWW-Authenticate: Basic realm="Admin Panel"');
-    header('HTTP/1.0 401 Unauthorized');
-    echo '<h1 style="text-align:center;margin-top:50px;">❌ Неверный пароль</h1>';
-    exit;
-}
+// ========== ОБРАБОТКА ДЕЙСТВИЙ ==========
+$messages = [];
 
-// ========== ОБРАБОТКА GET-ПАРАМЕТРОВ ==========
 // Удаление
-if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
-    $delete_id = (int)$_GET['delete'];
-    try {
-        $pdo->prepare("DELETE FROM application_languages WHERE application_id = :id")->execute([':id' => $delete_id]);
-        $pdo->prepare("DELETE FROM applications WHERE id = :id")->execute([':id' => $delete_id]);
-        $success_msg = "✅ Анкета #$delete_id успешно удалена!";
-    } catch (PDOException $e) {
-        $error_msg = "Ошибка удаления: " . $e->getMessage();
+if (isset($_GET['delete'])) {
+    $id = (int)$_GET['delete'];
+    $pdo->prepare("DELETE FROM application_languages WHERE application_id = ?")->execute([$id]);
+    $pdo->prepare("DELETE FROM applications WHERE id = ?")->execute([$id]);
+    $messages[] = '<div class="success-message">Анкета №' . $id . ' успешно удалена</div>';
+}
+
+// Редактирование
+$edit_id = 0;
+$edit_values = [];
+if (isset($_GET['edit'])) {
+    $edit_id = (int)$_GET['edit'];
+    $stmt = $pdo->prepare("SELECT * FROM applications WHERE id = ?");
+    $stmt->execute([$edit_id]);
+    $edit_values = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($edit_values) {
+        $lang_stmt = $pdo->prepare("
+            SELECT pl.name 
+            FROM application_languages al 
+            JOIN programming_languages pl ON al.language_id = pl.id 
+            WHERE al.application_id = ?
+        ");
+        $lang_stmt->execute([$edit_id]);
+        $edit_values['languages'] = [];
+        while ($l = $lang_stmt->fetch(PDO::FETCH_ASSOC)) {
+            $edit_values['languages'][] = $l['name'];
+        }
     }
 }
 
-// ========== ПОЛУЧАЕМ ДАННЫЕ ==========
-// Все анкеты с языками
-$sql = "SELECT a.*, 
-        GROUP_CONCAT(pl.name ORDER BY pl.name SEPARATOR ', ') as languages
-        FROM applications a
-        LEFT JOIN application_languages al ON a.id = al.application_id
-        LEFT JOIN programming_languages pl ON al.language_id = pl.id
-        GROUP BY a.id
-        ORDER BY a.created_at DESC";
+// Сохранение редактирования
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_id'])) {
+    $id = (int)$_POST['edit_id'];
 
-$stmt = $pdo->prepare($sql);
-$stmt->execute();
-$applications = $stmt->fetchAll();
+    $full_name = trim($_POST['full_name'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $birth_date = trim($_POST['birth_date'] ?? '');
+    $gender = $_POST['gender'] ?? '';
+    $biography = trim($_POST['biography'] ?? '');
+    $contract_accepted = isset($_POST['contract_accepted']) ? 1 : 0;
+    $languages = $_POST['languages'] ?? [];
 
-// Статистика по языкам
-$stats_sql = "SELECT pl.name, COUNT(al.application_id) as count 
-              FROM programming_languages pl
-              LEFT JOIN application_languages al ON pl.id = al.language_id
-              GROUP BY pl.id
-              ORDER BY count DESC";
-$stats_stmt = $pdo->prepare($stats_sql);
-$stats_stmt->execute();
-$language_stats = $stats_stmt->fetchAll();
+    if (empty($full_name) || empty($email) || empty($phone) || empty($birth_date) || empty($gender)) {
+        $messages[] = '<div class="error-message">Заполните обязательные поля</div>';
+    } else {
+        $pdo->beginTransaction();
 
-// Статистика по полу
-$gender_stats = $pdo->query("SELECT gender, COUNT(*) as count FROM applications GROUP BY gender")->fetchAll();
+        $stmt = $pdo->prepare("
+            UPDATE applications 
+            SET full_name = ?, phone = ?, email = ?, birth_date = ?, 
+                gender = ?, biography = ?, contract_accepted = ?
+            WHERE id = ?
+        ");
+        $stmt->execute([$full_name, $phone, $email, $birth_date, $gender, $biography, $contract_accepted, $id]);
 
-$total_users = count($applications);
+        $pdo->prepare("DELETE FROM application_languages WHERE application_id = ?")->execute([$id]);
+
+        $lang_map = [];
+        $stmt = $pdo->query("SELECT id, name FROM programming_languages");
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $lang_map[$row['name']] = $row['id'];
+        }
+        $stmt = $pdo->prepare("INSERT INTO application_languages (application_id, language_id) VALUES (?, ?)");
+        foreach ($languages as $lang_name) {
+            if (isset($lang_map[$lang_name])) {
+                $stmt->execute([$id, $lang_map[$lang_name]]);
+            }
+        }
+
+        $pdo->commit();
+        $messages[] = '<div class="success-message">Анкета №' . $id . ' успешно обновлена</div>';
+        $edit_id = 0;
+    }
+}
+
+// ========== ЗАГРУЗКА ДАННЫХ ==========
+$applications = [];
+$stmt = $pdo->query("
+    SELECT a.*, GROUP_CONCAT(pl.name SEPARATOR ', ') AS languages_list
+    FROM applications a
+    LEFT JOIN application_languages al ON a.id = al.application_id
+    LEFT JOIN programming_languages pl ON al.language_id = pl.id
+    GROUP BY a.id
+    ORDER BY a.id DESC
+");
+while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    $applications[] = $row;
+}
+
+// ========== СТАТИСТИКА ==========
+$stats = [];
+$stmt = $pdo->query("
+    SELECT pl.name, COUNT(DISTINCT al.application_id) AS count
+    FROM programming_languages pl
+    LEFT JOIN application_languages al ON pl.id = al.language_id
+    GROUP BY pl.id, pl.name
+    ORDER BY count DESC, pl.name
+");
+while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    $stats[] = $row;
+}
 ?>
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Панель администратора</title>
+    <title>Админ-панель — Задание 6</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: #f5f0ff; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        
-        .admin-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: linear-gradient(135deg, #9662f0, #110d52);
-            color: white;
-            padding: 1rem 2rem;
-            border-radius: 20px;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
-            gap: 1rem;
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { color: #b87333; text-align: center; }
+        h2 { color: #b87333; margin-top: 30px; }
+        table { width: 100%; border-collapse: collapse; background: #1a1a1a; border-radius: 10px; overflow: hidden; }
+        th { background: #b87333; color: #1a1a1a; padding: 12px; text-align: left; }
+        td { padding: 10px 12px; border-bottom: 1px solid #333; }
+        tr:hover { background: #252525; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #b87333; }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #444;
+            background: #1a1a1a; color: #fff; font-size: 14px;
         }
-        .admin-header h1 { font-size: 1.8rem; }
-        .admin-header .user-info { display: flex; align-items: center; gap: 1rem; }
-        .admin-header .logout-link {
-            color: white;
-            text-decoration: none;
-            background: rgba(255,255,255,0.2);
-            padding: 0.5rem 1rem;
-            border-radius: 20px;
-            transition: background 0.3s;
+        .form-group textarea { resize: vertical; }
+        .form-group.checkbox label { display: inline; }
+        button {
+            background: #b87333; color: #1a1a1a; border: none; padding: 12px 30px;
+            border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: bold;
         }
-        .admin-header .logout-link:hover { background: rgba(255,255,255,0.3); }
-        
-        .success-msg, .error-msg {
-            padding: 1rem;
-            border-radius: 12px;
-            margin-bottom: 1.5rem;
-            text-align: center;
-        }
-        .success-msg { background: #e8f5e9; color: #2e7d32; }
-        .error-msg { background: #ffebee; color: #c62828; }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        .stats-card {
-            background: white;
-            padding: 1.2rem;
-            border-radius: 16px;
-            text-align: center;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        }
-        .stats-card .number {
-            font-size: 2.2rem;
-            font-weight: bold;
-            color: #110d52;
-        }
-        .stats-card .label {
-            color: #666;
-            font-size: 0.85rem;
-            margin-top: 0.3rem;
-        }
-        .stats-card .lang-name {
-            font-weight: bold;
-            color: #110d52;
-        }
-        
-        .table-wrapper {
-            background: white;
-            border-radius: 20px;
-            padding: 1.5rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            overflow-x: auto;
-        }
-        .table-wrapper h2 { color: #110d52; margin-bottom: 1rem; }
-        .admin-table {
-            width: 100%;
-            border-collapse: collapse;
-            min-width: 1000px;
-            font-size: 0.9rem;
-        }
-        .admin-table th {
-            background: #f5f0ff;
-            color: #110d52;
-            padding: 0.75rem 1rem;
-            text-align: left;
-            border-bottom: 2px solid #9662f0;
-            white-space: nowrap;
-        }
-        .admin-table td {
-            padding: 0.75rem 1rem;
-            border-bottom: 1px solid #f0f0f0;
-            vertical-align: middle;
-        }
-        .admin-table tr:hover { background: #faf5ff; }
-        
-        .badge {
-            display: inline-block;
-            background: #9662f0;
-            color: white;
-            padding: 0.15rem 0.6rem;
-            border-radius: 20px;
-            font-size: 0.7rem;
-            margin: 0.1rem;
-        }
-        .gender-male { color: #2b3cf0; font-weight: bold; }
-        .gender-female { color: #d55a83; font-weight: bold; }
-        
-        .actions { display: flex; gap: 0.3rem; flex-wrap: nowrap; }
-        .btn-view, .btn-edit, .btn-delete {
-            padding: 0.2rem 0.6rem;
-            border-radius: 20px;
-            text-decoration: none;
-            font-size: 0.75rem;
-            border: none;
-            cursor: pointer;
-            transition: all 0.2s;
-            white-space: nowrap;
-        }
-        .btn-view { background: #2196f3; color: white; }
-        .btn-view:hover { background: #1976d2; }
-        .btn-edit { background: #4caf50; color: white; }
-        .btn-edit:hover { background: #388e3c; }
-        .btn-delete { background: #f44336; color: white; }
-        .btn-delete:hover { background: #d32f2f; }
-        
-        .empty-state { text-align: center; padding: 3rem; color: #9662f0; }
-        
-        .action-buttons {
-            margin-top: 2rem;
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-        .action-btn {
-            background: linear-gradient(135deg, #9662f0, #110d52);
-            color: white;
-            padding: 0.75rem 1.5rem;
-            border-radius: 40px;
-            text-decoration: none;
-            font-weight: bold;
-            transition: transform 0.2s;
-            display: inline-block;
-        }
-        .action-btn:hover { transform: translateY(-2px); }
-        .action-btn.secondary { background: linear-gradient(135deg, #b0bec5, #90a4ae); }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            justify-content: center;
-            align-items: center;
-        }
-        .modal-content {
-            background: white;
-            border-radius: 24px;
-            max-width: 500px;
-            width: 90%;
-            padding: 2rem;
-            position: relative;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        .modal-close {
-            position: absolute;
-            right: 1.5rem;
-            top: 1rem;
-            font-size: 1.5rem;
-            cursor: pointer;
-            color: #9662f0;
-        }
-        .modal-close:hover { color: #110d52; }
-        .modal h3 { color: #110d52; margin-bottom: 1rem; }
-        .modal-field { margin-bottom: 0.75rem; }
-        .modal-field strong {
-            color: #110d52;
-            display: inline-block;
-            width: 120px;
-        }
-        
-        @media (max-width: 768px) {
-            .admin-header { flex-direction: column; text-align: center; }
-            .admin-table { font-size: 0.75rem; min-width: 700px; }
-            .admin-table th, .admin-table td { padding: 0.4rem; }
-            .actions { flex-wrap: wrap; }
-        }
+        button:hover { background: #d4954a; }
+        .success-message { background: #1a3a1a; color: #7d9; padding: 10px; border-radius: 8px; margin: 10px 0; }
+        .error-message { background: #3a1a1a; color: #d77; padding: 10px; border-radius: 8px; margin: 10px 0; }
+        a { color: #b87333; text-decoration: none; }
+        a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="admin-header">
-            <h1>🔐 Панель администратора</h1>
-            <div class="user-info">
-                <span>👤 <?php echo htmlspecialchars($_SERVER['PHP_AUTH_USER']); ?></span>
-                <a href="?logout=1" class="logout-link">🚪 Выйти</a>
-            </div>
-        </div>
+        <h1>🔧 Админ-панель</h1>
+        <p style="text-align:center;color:#b87333;">Авторизован как <strong><?= htmlspecialchars($auth_login) ?></strong></p>
 
-        <?php if (isset($success_msg)): ?>
-            <div class="success-msg"><?php echo $success_msg; ?></div>
-        <?php endif; ?>
-        <?php if (isset($error_msg)): ?>
-            <div class="error-msg"><?php echo $error_msg; ?></div>
-        <?php endif; ?>
-
-        <div class="stats-grid">
-            <div class="stats-card">
-                <div class="number"><?php echo $total_users; ?></div>
-                <div class="label">👤 Всего пользователей</div>
-            </div>
-            <?php 
-            $gender_male = 0;
-            $gender_female = 0;
-            foreach ($gender_stats as $g) {
-                if ($g['gender'] == 'male') $gender_male = $g['count'];
-                if ($g['gender'] == 'female') $gender_female = $g['count'];
-            }
-            ?>
-            <div class="stats-card">
-                <div class="number"><?php echo $gender_male; ?></div>
-                <div class="label">♂ Мужчины</div>
-            </div>
-            <div class="stats-card">
-                <div class="number"><?php echo $gender_female; ?></div>
-                <div class="label">♀ Женщины</div>
-            </div>
-            <?php foreach (array_slice($language_stats, 0, 3) as $stat): ?>
-                <div class="stats-card">
-                    <div class="lang-name"><?php echo htmlspecialchars($stat['name']); ?></div>
-                    <div class="number" style="font-size:1.5rem;"><?php echo $stat['count']; ?></div>
-                    <div class="label">пользователей</div>
-                </div>
+        <?php if (!empty($messages)): ?>
+            <?php foreach ($messages as $msg): ?>
+                <?= $msg ?>
             <?php endforeach; ?>
-        </div>
+        <?php endif; ?>
 
-        <div class="table-wrapper">
-            <h2>📋 Все анкеты</h2>
-            
-            <?php if (empty($applications)): ?>
-                <div class="empty-state">
-                    <p>😕 Пока нет ни одной сохранённой анкеты.</p>
+        <!-- РЕДАКТИРОВАНИЕ -->
+        <?php if ($edit_id > 0 && !empty($edit_values)): ?>
+            <h2 style="margin:30px 0 15px;">Редактирование анкеты №<?= $edit_id ?></h2>
+            <form method="POST" style="background:#252525;padding:25px;border-radius:15px;">
+                <input type="hidden" name="edit_id" value="<?= $edit_id ?>">
+
+                <div class="form-group">
+                    <label>ФИО</label>
+                    <input type="text" name="full_name" value="<?= htmlspecialchars($edit_values['full_name']) ?>" required>
                 </div>
-            <?php else: ?>
-                <table class="admin-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>ФИО</th>
-                            <th>Телефон</th>
-                            <th>Email</th>
-                            <th>Дата рождения</th>
-                            <th>Пол</th>
-                            <th>Языки</th>
-                            <th>Дата</th>
-                            <th>Действия</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($applications as $app): ?>
-                            <tr>
-                                <td><?php echo $app['id']; ?></td>
-                                <td><?php echo htmlspecialchars($app['full_name']); ?></td>
-                                <td><?php echo htmlspecialchars($app['phone']); ?></td>
-                                <td><?php echo htmlspecialchars($app['email']); ?></td>
-                                <td><?php echo date('d.m.Y', strtotime($app['birth_date'])); ?></td>
-                                <td class="<?php echo $app['gender'] == 'male' ? 'gender-male' : 'gender-female'; ?>">
-                                    <?php echo $app['gender'] == 'male' ? '♂ Мужской' : '♀ Женский'; ?>
-                                </td>
-                                <td>
-                                    <?php 
-                                    $langs = explode(', ', $app['languages'] ?? '');
-                                    foreach ($langs as $lang):
-                                        if (trim($lang)):
-                                    ?>
-                                        <span class="badge"><?php echo htmlspecialchars(trim($lang)); ?></span>
-                                    <?php 
-                                        endif;
-                                    endforeach; 
-                                    ?>
-                                </td>
-                                <td><?php echo date('d.m.Y H:i', strtotime($app['created_at'])); ?></td>
-                                <td>
-                                    <div class="actions">
-                                        <a href="admin_view.php?id=<?php echo $app['id']; ?>" class="btn-view" target="_blank">👁️</a>
-                                        <a href="admin_edit.php?id=<?php echo $app['id']; ?>" class="btn-edit">✏️</a>
-                                        <a href="admin.php?delete=<?php echo $app['id']; ?>" class="btn-delete" onclick="return confirm('Удалить анкету #<?php echo $app['id']; ?>?')">🗑️</a>
-                                    </div>
-                                </td>
-                            </tr>
+                <div class="form-group">
+                    <label>Телефон</label>
+                    <input type="tel" name="phone" value="<?= htmlspecialchars($edit_values['phone']) ?>" required>
+                </div>
+                <div class="form-group">
+                    <label>E-mail</label>
+                    <input type="email" name="email" value="<?= htmlspecialchars($edit_values['email']) ?>" required>
+                </div>
+                <div class="form-group">
+                    <label>Дата рождения</label>
+                    <input type="date" name="birth_date" value="<?= htmlspecialchars($edit_values['birth_date']) ?>" required>
+                </div>
+                <div class="form-group">
+                    <label>Пол</label>
+                    <select name="gender" required>
+                        <option value="male" <?= $edit_values['gender']==='male'?'selected':'' ?>>Мужской</option>
+                        <option value="female" <?= $edit_values['gender']==='female'?'selected':'' ?>>Женский</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Любимые языки</label>
+                    <select name="languages[]" multiple size="6" style="width:100%;">
+                        <?php
+                        $all_langs = $pdo->query("SELECT name FROM programming_languages ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
+                        foreach ($all_langs as $lang): ?>
+                            <option value="<?= htmlspecialchars($lang) ?>" <?= in_array($lang, $edit_values['languages'] ?? []) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($lang) ?>
+                            </option>
                         <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
-        </div>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Биография</label>
+                    <textarea name="biography" rows="5"><?= htmlspecialchars($edit_values['biography'] ?? '') ?></textarea>
+                </div>
+                <div class="form-group checkbox">
+                    <label>
+                        <input type="checkbox" name="contract_accepted" value="1" <?= $edit_values['contract_accepted'] ? 'checked' : '' ?>>
+                        Я ознакомлен(а) с контрактом
+                    </label>
+                </div>
 
-        <div class="action-buttons">
-            <a href="admin_stats.php" class="action-btn">📊 Подробная статистика</a>
-            <a href="index.php" class="action-btn secondary">📝 На главную</a>
-            <a href="list.php" class="action-btn secondary">📋 Все анкеты</a>
+                <button type="submit">Сохранить изменения</button>
+                <a href="admin.php" style="display:block;text-align:center;margin-top:15px;color:#b87333;">Отмена</a>
+            </form>
+        <?php endif; ?>
+
+        <!-- ТАБЛИЦА -->
+        <h2>Все анкеты пользователей</h2>
+        <table>
+            <tr>
+                <th>ID</th>
+                <th>ФИО</th>
+                <th>Email</th>
+                <th>Телефон</th>
+                <th>Дата рожд.</th>
+                <th>Пол</th>
+                <th>Языки</th>
+                <th>Действия</th>
+            </tr>
+            <?php foreach ($applications as $app): ?>
+            <tr>
+                <td><?= $app['id'] ?></td>
+                <td><?= htmlspecialchars($app['full_name']) ?></td>
+                <td><?= htmlspecialchars($app['email']) ?></td>
+                <td><?= htmlspecialchars($app['phone']) ?></td>
+                <td><?= htmlspecialchars($app['birth_date']) ?></td>
+                <td><?= $app['gender']==='male'?'М':'Ж' ?></td>
+                <td><?= htmlspecialchars($app['languages_list'] ?? '—') ?></td>
+                <td>
+                    <a href="admin.php?edit=<?= $app['id'] ?>" style="color:#b87333;">✏️ Ред.</a> |
+                    <a href="admin.php?delete=<?= $app['id'] ?>" onclick="return confirm('Удалить анкету №<?= $app['id'] ?>?')" style="color:#e67e22;">🗑 Удалить</a>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+            <?php if (empty($applications)): ?>
+            <tr><td colspan="8" style="text-align:center;color:#888;">Пока нет ни одной анкеты</td></tr>
+            <?php endif; ?>
+        </table>
+
+        <!-- СТАТИСТИКА -->
+        <h2 style="margin-top:40px;">Статистика по языкам программирования</h2>
+        <table>
+            <tr>
+                <th>Язык</th>
+                <th>Количество пользователей</th>
+            </tr>
+            <?php foreach ($stats as $s): ?>
+            <tr>
+                <td><?= htmlspecialchars($s['name']) ?></td>
+                <td><strong><?= $s['count'] ?></strong></td>
+            </tr>
+            <?php endforeach; ?>
+        </table>
+
+        <div style="text-align:center;margin-top:40px;">
+            <a href="index.php" style="color:#b87333;font-size:1.1em;">← Вернуться к главной форме</a>
         </div>
     </div>
-
-    <script>
-        // Выход
-        <?php if (isset($_GET['logout'])): ?>
-            <?php
-            header('WWW-Authenticate: Basic realm="Admin Panel"');
-            header('HTTP/1.0 401 Unauthorized');
-            echo '<h1 style="text-align:center;margin-top:50px;">Выход выполнен</h1>';
-            echo '<p style="text-align:center;"><a href="admin.php">Войти снова</a></p>';
-            exit;
-            ?>
-        <?php endif; ?>
-    </script>
 </body>
 </html>
